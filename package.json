@@ -1,0 +1,13 @@
+{
+  "name": "fuck-spa",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Leitor minimalista para SPAs - transforma qualquer link em contexto para agente IA",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.13",
+    "playwright": "^1.44.0"
+  },
+  "scripts": {
+    "postinstall": "npx playwright install chromium"
+  }
+}
