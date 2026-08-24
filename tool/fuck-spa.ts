@@ -1,7 +1,38 @@
 import { tool } from "@opencode-ai/plugin"
+import fs from "fs"
+import path from "path"
+import os from "os"
+import crypto from "crypto"
 
 const FETCH_TIMEOUT = 15000
 const RENDER_TIMEOUT = 20000
+const CACHE_TTL = 60 * 60 * 1000
+const CACHE_DIR = path.join(os.tmpdir(), "fuck-spa")
+
+function cacheKey(url: string): string {
+  return crypto.createHash("sha256").update(url).digest("hex").slice(0, 16)
+}
+
+function readCache(url: string): string | null {
+  try {
+    const p = path.join(CACHE_DIR, cacheKey(url) + ".txt")
+    const st = fs.statSync(p)
+    if (Date.now() - st.mtimeMs > CACHE_TTL) return null
+    const data = fs.readFileSync(p, "utf-8")
+    if (data.length < 10) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+function writeCache(url: string, content: string): void {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true })
+    const p = path.join(CACHE_DIR, cacheKey(url) + ".txt")
+    fs.writeFileSync(p, content, "utf-8")
+  } catch {}
+}
 
 function isSpaShell(html: string, text: string): boolean {
   if (text.trim().length > 800) return false
@@ -71,30 +102,41 @@ export default tool({
   args: {
     url: tool.schema.string().describe("URL para extrair"),
     prompt: tool.schema.string().optional().describe("Pergunta específica sobre a página"),
+    noCache: tool.schema.boolean().optional().describe("Ignorar cache e forçar refetch"),
   },
   async execute(args) {
     const url = args.url?.trim()
     if (!url || !/^https?:\/\//.test(url)) return "FUCK_SPA_ERROR: url inválida, use https://"
+    if (!args.noCache) {
+      const cached = readCache(url)
+      if (cached) {
+        if (args.prompt) return `${cached}\n\nPergunta: ${args.prompt} (cache)`
+        return cached
+      }
+    }
+    let result: string
     const fetched = await fetchSimple(url)
     if (typeof fetched === "string") {
-      if (fetched.startsWith("LOGIN_REQUIRED")) return `${fetched} — página requer login, forneça sessão autenticada`
-      if (fetched.startsWith("FETCH_ERROR")) {
+      if (fetched.startsWith("LOGIN_REQUIRED")) result = `${fetched} — página requer login, forneça sessão autenticada`
+      else if (fetched.startsWith("FETCH_ERROR")) {
         const rendered = await renderWithPlaywright(url)
-        if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT") ) return `${fetched}\nFallback: ${rendered}`
-        return rendered
-      }
-      return fetched
-    }
-    if (!isSpaShell(fetched.html, fetched.text)) {
+        if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT")) result = `${fetched}\nFallback: ${rendered}`
+        else result = rendered
+      } else result = fetched
+    } else if (!isSpaShell(fetched.html, fetched.text)) {
       const out = fetched.text.slice(0, 15000)
-      if (args.prompt) return `Conteúdo de ${url}:\n${out}\n\nPergunta: ${args.prompt}`
-      return out
+      result = args.prompt ? `Conteúdo de ${url}:\n${out}\n\nPergunta: ${args.prompt}` : out
+    } else {
+      const rendered = await renderWithPlaywright(url)
+      if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT") || rendered.startsWith("LOGIN")) {
+        result = `SPA detectada mas render falhou: ${rendered}\nFetch text parcial: ${fetched.text.slice(0, 2000)}`
+      } else {
+        result = args.prompt ? `Conteúdo renderizado de ${url}:\n${rendered}\n\nPergunta: ${args.prompt}` : rendered
+      }
     }
-    const rendered = await renderWithPlaywright(url)
-    if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT") || rendered.startsWith("LOGIN")) {
-      return `SPA detectada mas render falhou: ${rendered}\nFetch text parcial: ${fetched.text.slice(0, 2000)}`
+    if (result.length > 100 && !result.startsWith("FUCK_SPA_ERROR") && !result.startsWith("FETCH_ERROR") && !result.startsWith("RENDER_") && !result.startsWith("PLAYWRIGHT") && !result.includes("LOGIN_REQUIRED")) {
+      writeCache(url, result)
     }
-    if (args.prompt) return `Conteúdo renderizado de ${url}:\n${rendered}\n\nPergunta: ${args.prompt}`
-    return rendered
+    return result
   },
 })
