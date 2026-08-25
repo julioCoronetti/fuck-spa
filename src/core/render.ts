@@ -1,5 +1,5 @@
 import fs from "fs"
-import type { Browser } from "playwright"
+import type { Browser, Page } from "playwright"
 import { BROWSER_UA, RENDER_TIMEOUT, type ExtractionResult, type SessionOptions } from "./types.js"
 import { sanitizeContent } from "./sanitize.js"
 
@@ -110,6 +110,33 @@ async function newContext(
   return context
 }
 
+const POLL_INTERVAL = 250
+const POLL_STABLE_SAMPLES = 4
+const POLL_DWELL_MS = 1000
+const POLL_MIN_TEXT = 100
+
+async function waitForStableText(page: Page, budgetMs: number): Promise<string> {
+  const start = Date.now()
+  const dwellUntil = start + POLL_DWELL_MS
+  let last = ""
+  let stable = 0
+  let text = ""
+  while (Date.now() - start < budgetMs) {
+    await page.waitForTimeout(POLL_INTERVAL)
+    text = ((await page.evaluate(() => document.body?.innerText || "")) || "").trim()
+    const same = text === last
+    const eligible = text.length >= POLL_MIN_TEXT && Date.now() >= dwellUntil
+    if (same && eligible) {
+      stable++
+      if (stable >= POLL_STABLE_SAMPLES) return text
+    } else if (!same) {
+      last = text
+      stable = 0
+    }
+  }
+  return text
+}
+
 export async function renderWithPlaywright(
   url: string,
   session?: SessionOptions,
@@ -142,9 +169,23 @@ export async function renderWithPlaywright(
         }
       }
       const page = await context.newPage()
-      await page.goto(url, { waitUntil: "networkidle", timeout: RENDER_TIMEOUT })
-      await page.waitForTimeout(1500)
-      const text = await page.evaluate(() => document.body.innerText || "")
+      const started = Date.now()
+      const usePolling = process.env.FUCK_SPA_RENDER !== "networkidle"
+      let text: string
+      if (usePolling) {
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: Math.max(1000, RENDER_TIMEOUT - (Date.now() - started)),
+        })
+        text = await waitForStableText(page, Math.max(1000, RENDER_TIMEOUT - (Date.now() - started)))
+      } else {
+        await page.goto(url, {
+          waitUntil: "networkidle",
+          timeout: Math.max(1000, RENDER_TIMEOUT - (Date.now() - started)),
+        })
+        await page.waitForTimeout(1500)
+        text = ((await page.evaluate(() => document.body?.innerText || "")) || "").trim()
+      }
       const clean = text.replace(/\n{3,}/g, "\n\n").trim()
       if (isRenderBlocked(clean)) {
         return {

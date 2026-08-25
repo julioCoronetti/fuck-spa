@@ -29068,7 +29068,7 @@ var EMPTY_COMPLETION_RESULT = {
 };
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
-import process from "node:process";
+import process2 from "node:process";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
@@ -29109,7 +29109,7 @@ function serializeMessage(message) {
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
-  constructor(_stdin = process.stdin, _stdout = process.stdout, options) {
+  constructor(_stdin = process2.stdin, _stdout = process2.stdout, options) {
     this._stdin = _stdin;
     this._stdout = _stdout;
     this._started = false;
@@ -29361,6 +29361,31 @@ async function newContext(browser, session) {
   }
   return context;
 }
+var POLL_INTERVAL = 250;
+var POLL_STABLE_SAMPLES = 4;
+var POLL_DWELL_MS = 1e3;
+var POLL_MIN_TEXT = 100;
+async function waitForStableText(page, budgetMs) {
+  const start = Date.now();
+  const dwellUntil = start + POLL_DWELL_MS;
+  let last = "";
+  let stable = 0;
+  let text = "";
+  while (Date.now() - start < budgetMs) {
+    await page.waitForTimeout(POLL_INTERVAL);
+    text = (await page.evaluate(() => document.body?.innerText || "") || "").trim();
+    const same = text === last;
+    const eligible = text.length >= POLL_MIN_TEXT && Date.now() >= dwellUntil;
+    if (same && eligible) {
+      stable++;
+      if (stable >= POLL_STABLE_SAMPLES) return text;
+    } else if (!same) {
+      last = text;
+      stable = 0;
+    }
+  }
+  return text;
+}
 async function renderWithPlaywright(url2, session) {
   try {
     const { chromium } = await import("playwright");
@@ -29390,9 +29415,23 @@ async function renderWithPlaywright(url2, session) {
         };
       }
       const page = await context.newPage();
-      await page.goto(url2, { waitUntil: "networkidle", timeout: RENDER_TIMEOUT });
-      await page.waitForTimeout(1500);
-      const text = await page.evaluate(() => document.body.innerText || "");
+      const started = Date.now();
+      const usePolling = process.env.FUCK_SPA_RENDER !== "networkidle";
+      let text;
+      if (usePolling) {
+        await page.goto(url2, {
+          waitUntil: "domcontentloaded",
+          timeout: Math.max(1e3, RENDER_TIMEOUT - (Date.now() - started))
+        });
+        text = await waitForStableText(page, Math.max(1e3, RENDER_TIMEOUT - (Date.now() - started)));
+      } else {
+        await page.goto(url2, {
+          waitUntil: "networkidle",
+          timeout: Math.max(1e3, RENDER_TIMEOUT - (Date.now() - started))
+        });
+        await page.waitForTimeout(1500);
+        text = (await page.evaluate(() => document.body?.innerText || "") || "").trim();
+      }
       const clean = text.replace(/\n{3,}/g, "\n\n").trim();
       if (isRenderBlocked(clean)) {
         return {
