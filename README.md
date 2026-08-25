@@ -13,15 +13,14 @@ cd fuck-spa
 ```
 
 The `install.sh`:
+- Copies the bundles (`fuck-spa.js` for opencode into `tools/`, `fuck-spa-mcp.js` for any harness into `mcp/`)
 - Installs playwright, downloads chromium and tries to install system libraries (may ask for `sudo`)
 - Validates that chromium launches
 
-The tool is installed **disabled by default** — it does not occupy model context/tokens until you need it:
+The tool is always available. To prevent indiscriminate use (tokens/performance), make opencode ask for approval on every call — `opencode.json`:
 
-```sh
-./fuck-spa.sh on      # enable (restart opencode to load)
-./fuck-spa.sh off     # disable after use
-./fuck-spa.sh status  # check state
+```json
+{ "permission": { "tools": { "fuck-spa": "ask" } } }
 ```
 
 If system libraries were not installed (e.g. no sudo available), run:

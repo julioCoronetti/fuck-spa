@@ -5,11 +5,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$DEST/tools" "$DEST/mcp" "$DEST/skills/fuck-spa"
 rm -f "$DEST/tools/fuck-spa.ts"
 rm -rf "$DEST/tools/core"
+cp "$HERE/dist/fuck-spa.opencode.js" "$DEST/tools/fuck-spa.js"
 cp "$HERE/dist/fuck-spa-mcp.js" "$DEST/mcp/fuck-spa-mcp.js"
 cp "$HERE/skill.md" "$DEST/skills/fuck-spa/SKILL.md"
 cp "$HERE/package.json" "$DEST/tools/fuck-spa.json" 2>/dev/null || true
-echo "fuck-spa instalado DESATIVADO em $DEST (tool nao fica no contexto do modelo)"
-echo "Ative quando for usar: ./fuck-spa.sh on  |  Desative depois: ./fuck-spa.sh off"
+echo "fuck-spa instalado em $DEST"
+echo "Para aprovar cada uso (sem uso indiscriminado), adicione no opencode.json:"
+echo '  "permission": { "tools": { "fuck-spa": "ask" } }'
 
 if command -v bun >/dev/null 2>&1; then
   PKG=bunx

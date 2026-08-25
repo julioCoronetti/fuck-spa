@@ -2,17 +2,15 @@
 
 Use quando `webfetch` falha ou retorna HTML vazio de SPA.
 
-## Ativacao consciente
+## Uso consciente
 
-A tool fica DESATIVADA por padrao (nao ocupa contexto/tokens do modelo). Ative so quando for usar:
+A tool fica sempre disponível. Para evitar uso indiscriminado (tokens/desempenho), configure o opencode para aprovar cada execução — `opencode.json`:
 
-```sh
-./fuck-spa.sh on      # ativa (reinicie o opencode)
-./fuck-spa.sh off     # desativa depois do uso
-./fuck-spa.sh status  # verifica
+```json
+{ "permission": { "tools": { "fuck-spa": "ask" } } }
 ```
 
-Depois do uso, desative novamente.
+Assim o modelo pede sua aprovação antes de cada chamada.
 
 ## Quando usar
 
