@@ -5,6 +5,15 @@ import { renderWithPlaywright } from "./render.js"
 import { redditContent, redditUrl } from "./reddit.js"
 import { readCache, writeCache } from "./cache.js"
 import { htmlToReadableText, sanitizeContent } from "./sanitize.js"
+import { answerFromChunks } from "./question.js"
+
+function applyQuestion(out: ExtractionResult, prompt?: string): ExtractionResult {
+  if (!prompt || out.status !== "OK") return out
+  const chunks = out.chunks ?? (out.content ? [out.content] : [])
+  const answer = answerFromChunks(chunks, prompt)
+  if (!answer) return out
+  return { ...out, answer }
+}
 
 export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
   const url = (opts.url ?? "").trim()
@@ -20,7 +29,15 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
   if (!opts.noCache) {
     const cached = readCache(url)
     if (cached) {
-      return { status: "OK", spaDetected: cached.spaDetected, source: "cache", url, content: cached.content }
+      const base = {
+        status: "OK" as const,
+        spaDetected: cached.spaDetected,
+        source: "cache" as const,
+        url,
+        content: cached.content,
+        chunks: cached.chunks,
+      }
+      return applyQuestion(base, opts.prompt)
     }
   }
   let out: ExtractionResult
@@ -87,6 +104,7 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
       }
     }
   }
+  out = applyQuestion(out, opts.prompt)
   writeCache(out)
   return out
 }

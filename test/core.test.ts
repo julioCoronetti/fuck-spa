@@ -6,6 +6,7 @@ import { redditUrl } from "../src/core/reddit.js"
 import { extract } from "../src/core/extract.js"
 import { formatResult } from "../src/core/format.js"
 import { chunkText, htmlToReadableText, sanitizeContent } from "../src/core/sanitize.js"
+import { answerFromChunks, extractKeywords } from "../src/core/question.js"
 
 const SPA_SHELL =
   '<html><head><title>App</title></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>'
@@ -148,4 +149,38 @@ test("sanitizeContent: texto longo chunkia com aviso", () => {
   assert.ok(out.chunks && out.chunks.length > 1)
   assert.match(out.content, /conteúdo longo dividido em \d+ partes/)
   assert.ok(out.content.length < long.length)
+})
+
+test("extractKeywords: remove stopwords", () => {
+  const kws = extractKeywords("o que é o preço do café no Brasil?")
+  assert.ok(kws.includes("preço"))
+  assert.ok(kws.includes("café"))
+  assert.ok(kws.includes("brasil"))
+  assert.ok(!kws.includes("que"))
+  assert.ok(!kws.includes("o"))
+})
+
+test("answerFromChunks: retorna chunks relevantes", () => {
+  const chunks = ["sobre plantio de café em minas gerais", "receita de bolo de chocolate", "exportação de café no brasil"]
+  const answer = answerFromChunks(chunks, "onde tem café no brasil?")
+  assert.ok(answer)
+  assert.match(answer ?? "", /café/)
+})
+
+test("answerFromChunks: fallback null sem match", () => {
+  const answer = answerFromChunks(["futebol e futebol"], "qual a capital da frança?")
+  assert.equal(answer, null)
+})
+
+test("extract: modo pergunta responde trecho via cache", async () => {
+  const url = "https://exemplo.com/pergunta-unic"
+  const html = "<html><body><h1>Guia de Node</h1><p>Node usa V8 e npm para pacotes.</p></body></html>"
+  await withFetch(async () => new Response(html, { status: 200 }), async () => {
+    const r = await extract({ url, prompt: "qual engine o node usa?", noCache: true })
+    assert.equal(r.status, "OK")
+    assert.ok(r.answer && r.answer.includes("V8"))
+    const r2 = await extract({ url, prompt: "qual engine o node usa?" })
+    assert.equal(r2.source, "cache")
+    assert.ok(r2.answer && r2.answer.includes("V8"))
+  })
 })
