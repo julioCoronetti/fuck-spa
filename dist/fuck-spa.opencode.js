@@ -113,6 +113,16 @@ var BLOCK_PATTERNS = /you'?ve been blocked|access denied|unusual traffic|verify 
 function isRenderBlocked(text) {
   return BLOCK_PATTERNS.test(text);
 }
+function resolveStorageState(input) {
+  const trimmed = input.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return JSON.parse(trimmed);
+  return JSON.parse(fs.readFileSync(input, "utf-8"));
+}
+function parseCookiesJson(input) {
+  const parsed = JSON.parse(input);
+  if (!Array.isArray(parsed)) throw new Error("cookiesJson deve ser um array de cookies");
+  return parsed;
+}
 async function chromiumAvailable() {
   try {
     const { chromium } = await import("playwright");
@@ -121,7 +131,7 @@ async function chromiumAvailable() {
     return false;
   }
 }
-async function renderWithPlaywright(url) {
+async function renderWithPlaywright(url, session) {
   try {
     const { chromium } = await import("playwright");
     if (!await chromiumAvailable()) {
@@ -135,7 +145,24 @@ async function renderWithPlaywright(url) {
     }
     const browser = await chromium.launch({ headless: true });
     try {
-      const page = await browser.newPage();
+      let context;
+      try {
+        context = session?.storageState ? await browser.newContext({ storageState: resolveStorageState(session.storageState) }) : await browser.newContext();
+        if (session?.cookiesJson) {
+          await context.addCookies(parseCookiesJson(session.cookiesJson));
+        }
+      } catch (e) {
+        await browser.close();
+        const msg = e instanceof Error ? e.message : String(e);
+        return {
+          status: "RENDER_ERROR",
+          spaDetected: true,
+          source: "render",
+          url,
+          content: `RENDER_ERROR: sess\xE3o inv\xE1lida (${msg.slice(0, 200)})`
+        };
+      }
+      const page = await context.newPage();
       await page.goto(url, { waitUntil: "networkidle", timeout: RENDER_TIMEOUT });
       await page.waitForTimeout(1500);
       const text = await page.evaluate(() => document.body.innerText || "");
@@ -230,7 +257,7 @@ async function fetchRedditJson(url) {
     return `REDDIT_JSON_ERROR: ${e instanceof Error ? e.message : String(e)}`;
   }
 }
-async function redditContent(url) {
+async function redditContent(url, session) {
   const oldUrl = redditUrl(url);
   const old = await fetchSimple(oldUrl);
   if (typeof old === "object") {
@@ -258,7 +285,7 @@ async function redditContent(url) {
       chunks: sanitized.chunks
     };
   }
-  const rendered = await renderWithPlaywright(url);
+  const rendered = await renderWithPlaywright(url, session);
   if (rendered.status === "OK") return rendered;
   return {
     status: "REDDIT_ERROR",
@@ -410,8 +437,11 @@ function applyQuestion(out, prompt) {
   if (!answer) return out;
   return { ...out, answer };
 }
+var SESSION_HINT = " \u2014 forne\xE7a storageState (arquivo JSON exportado do browser) ou cookiesJson";
 async function extract(opts) {
   const url = (opts.url ?? "").trim();
+  const session = { storageState: opts.storageState, cookiesJson: opts.cookiesJson };
+  const hasSession = !!(opts.storageState || opts.cookiesJson);
   if (!url || !/^https?:\/\//.test(url)) {
     return {
       status: "INVALID_URL",
@@ -437,20 +467,25 @@ async function extract(opts) {
   }
   let out;
   if (redditUrl(url)) {
-    out = await redditContent(url);
+    out = await redditContent(url, session);
   } else {
     const fetched = await fetchSimple(url);
     if (typeof fetched === "string") {
       if (fetched.startsWith("LOGIN_REQUIRED")) {
-        out = {
-          status: "LOGIN_REQUIRED",
-          spaDetected: false,
-          source: "fetch",
-          url,
-          content: `${fetched} \u2014 p\xE1gina requer login, forne\xE7a sess\xE3o autenticada`
-        };
+        const rendered = hasSession ? await renderWithPlaywright(url, session) : null;
+        if (rendered && rendered.status === "OK") {
+          out = rendered;
+        } else {
+          out = {
+            status: "LOGIN_REQUIRED",
+            spaDetected: false,
+            source: "fetch",
+            url,
+            content: rendered ? `${fetched}${SESSION_HINT} \u2014 render com sess\xE3o falhou: ${rendered.content}` : `${fetched}${SESSION_HINT}`
+          };
+        }
       } else if (fetched.startsWith("FETCH_ERROR")) {
-        const rendered = await renderWithPlaywright(url);
+        const rendered = await renderWithPlaywright(url, session);
         if (rendered.status === "OK") {
           out = rendered;
         } else {
@@ -467,13 +502,18 @@ Fallback: ${rendered.content}`
         out = { status: "FETCH_ERROR", spaDetected: false, source: "fetch", url, content: fetched };
       }
     } else if (isBlocked(fetched.html, fetched.text, fetched.status)) {
-      out = {
-        status: "BLOCKED",
-        spaDetected: false,
-        source: "fetch",
-        url,
-        content: "BLOCKED: site detectou agente autom\xE1tico (block page). Tente via chromium ou forne\xE7a sess\xE3o autenticada."
-      };
+      const rendered = hasSession ? await renderWithPlaywright(url, session) : null;
+      if (rendered && rendered.status === "OK") {
+        out = rendered;
+      } else {
+        out = {
+          status: "BLOCKED",
+          spaDetected: false,
+          source: "fetch",
+          url,
+          content: rendered ? `BLOCKED: site detectou agente autom\xE1tico${SESSION_HINT} \u2014 render com sess\xE3o falhou: ${rendered.content}` : `BLOCKED: site detectou agente autom\xE1tico (block page)${SESSION_HINT}`
+        };
+      }
     } else if (!isSpaShell(fetched.html, fetched.text)) {
       const sanitized = sanitizeContent(htmlToReadableText(fetched.html));
       out = {
@@ -485,7 +525,7 @@ Fallback: ${rendered.content}`
         chunks: sanitized.chunks
       };
     } else {
-      const rendered = await renderWithPlaywright(url);
+      const rendered = await renderWithPlaywright(url, session);
       if (rendered.status === "OK") {
         out = rendered;
       } else {
@@ -527,10 +567,18 @@ var tool_default = tool({
   args: {
     url: tool.schema.string().describe("URL para extrair"),
     prompt: tool.schema.string().optional().describe("Pergunta espec\xEDfica sobre a p\xE1gina"),
-    noCache: tool.schema.boolean().optional().describe("Ignorar cache e for\xE7ar refetch")
+    noCache: tool.schema.boolean().optional().describe("Ignorar cache e for\xE7ar refetch"),
+    storageState: tool.schema.string().optional().describe("Sess\xE3o autenticada: caminho de arquivo JSON ou JSON inline exportado do browser"),
+    cookiesJson: tool.schema.string().optional().describe("Sess\xE3o autenticada: JSON string com array de cookies")
   },
   async execute(args) {
-    const result = await extract({ url: args.url ?? "", prompt: args.prompt, noCache: args.noCache });
+    const result = await extract({
+      url: args.url ?? "",
+      prompt: args.prompt,
+      noCache: args.noCache,
+      storageState: args.storageState,
+      cookiesJson: args.cookiesJson
+    });
     return formatResult(result, args.prompt);
   }
 });

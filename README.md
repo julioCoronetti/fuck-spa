@@ -33,6 +33,29 @@ A tool `fuck-spa` fica disponível automaticamente após o `install.sh`. Argumen
 | `url` | URL para extrair (obrigatório) |
 | `prompt` | Pergunta específica sobre a página — retorna só o trecho relevante (keyword matching) |
 | `noCache` | Ignorar o cache de 1h e refazer o fetch |
+| `storageState` | Sessão autenticada: caminho de arquivo JSON ou JSON inline exportado do browser |
+| `cookiesJson` | Sessão autenticada: JSON string com array de cookies |
+
+## Sessão autenticada (login e bloqueios)
+
+Páginas que exigem login, e sites que bloqueiam agentes (ex.: Reddit), podem ser lidos com a sessão do usuário — nunca há bypass automático. Para exportar a sessão do seu browser:
+
+```sh
+node -e "
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: false });
+  const context = await browser.newContext();
+  await context.newPage().then(p => p.goto('https://site.com'));
+  console.log('faça o login na janela e pressione Enter');
+  await new Promise(r => process.stdin.once('data', r));
+  await context.storageState({ path: 'state.json' });
+  await browser.close();
+})();
+"
+```
+
+Depois chame a tool com `storageState: "state.json"`. Nos casos `LOGIN_REQUIRED` ou `BLOCKED`, a tool orienta como fornecer a sessão.
 
 ## Uso em qualquer harness (MCP)
 

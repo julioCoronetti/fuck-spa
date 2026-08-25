@@ -18,11 +18,16 @@ export type ExtractionStatus =
 
 export type ExtractionSource = "cache" | "fetch" | "render" | "reddit_old" | "reddit_json"
 
+export type SessionOptions = {
+  storageState?: string
+  cookiesJson?: string
+}
+
 export type ExtractOptions = {
   url: string
   prompt?: string
   noCache?: boolean
-}
+} & SessionOptions
 
 export type ExtractionResult = {
   status: ExtractionStatus

@@ -1,4 +1,4 @@
-import { BROWSER_UA, FETCH_TIMEOUT, type ExtractionResult } from "./types.js"
+import { BROWSER_UA, FETCH_TIMEOUT, type ExtractionResult, type SessionOptions } from "./types.js"
 import { fetchSimple } from "./http.js"
 import { isBlocked, isSpaShell } from "./detect.js"
 import { renderWithPlaywright } from "./render.js"
@@ -41,7 +41,7 @@ export async function fetchRedditJson(url: string): Promise<string> {
   }
 }
 
-export async function redditContent(url: string): Promise<ExtractionResult> {
+export async function redditContent(url: string, session?: SessionOptions): Promise<ExtractionResult> {
   const oldUrl = redditUrl(url) as string
   const old = await fetchSimple(oldUrl)
   if (typeof old === "object") {
@@ -69,7 +69,7 @@ export async function redditContent(url: string): Promise<ExtractionResult> {
       chunks: sanitized.chunks,
     }
   }
-  const rendered = await renderWithPlaywright(url)
+  const rendered = await renderWithPlaywright(url, session)
   if (rendered.status === "OK") return rendered
   return {
     status: "REDDIT_ERROR",

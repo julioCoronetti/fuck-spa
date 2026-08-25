@@ -15,8 +15,12 @@ function applyQuestion(out: ExtractionResult, prompt?: string): ExtractionResult
   return { ...out, answer }
 }
 
+const SESSION_HINT = " — forneça storageState (arquivo JSON exportado do browser) ou cookiesJson"
+
 export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
   const url = (opts.url ?? "").trim()
+  const session = { storageState: opts.storageState, cookiesJson: opts.cookiesJson }
+  const hasSession = !!(opts.storageState || opts.cookiesJson)
   if (!url || !/^https?:\/\//.test(url)) {
     return {
       status: "INVALID_URL",
@@ -42,20 +46,27 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
   }
   let out: ExtractionResult
   if (redditUrl(url)) {
-    out = await redditContent(url)
+    out = await redditContent(url, session)
   } else {
     const fetched = await fetchSimple(url)
     if (typeof fetched === "string") {
       if (fetched.startsWith("LOGIN_REQUIRED")) {
-        out = {
-          status: "LOGIN_REQUIRED",
-          spaDetected: false,
-          source: "fetch",
-          url,
-          content: `${fetched} — página requer login, forneça sessão autenticada`,
+        const rendered = hasSession ? await renderWithPlaywright(url, session) : null
+        if (rendered && rendered.status === "OK") {
+          out = rendered
+        } else {
+          out = {
+            status: "LOGIN_REQUIRED",
+            spaDetected: false,
+            source: "fetch",
+            url,
+            content: rendered
+              ? `${fetched}${SESSION_HINT} — render com sessão falhou: ${rendered.content}`
+              : `${fetched}${SESSION_HINT}`,
+          }
         }
       } else if (fetched.startsWith("FETCH_ERROR")) {
-        const rendered = await renderWithPlaywright(url)
+        const rendered = await renderWithPlaywright(url, session)
         if (rendered.status === "OK") {
           out = rendered
         } else {
@@ -71,13 +82,19 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
         out = { status: "FETCH_ERROR", spaDetected: false, source: "fetch", url, content: fetched }
       }
     } else if (isBlocked(fetched.html, fetched.text, fetched.status)) {
-      out = {
-        status: "BLOCKED",
-        spaDetected: false,
-        source: "fetch",
-        url,
-        content:
-          "BLOCKED: site detectou agente automático (block page). Tente via chromium ou forneça sessão autenticada.",
+      const rendered = hasSession ? await renderWithPlaywright(url, session) : null
+      if (rendered && rendered.status === "OK") {
+        out = rendered
+      } else {
+        out = {
+          status: "BLOCKED",
+          spaDetected: false,
+          source: "fetch",
+          url,
+          content: rendered
+            ? `BLOCKED: site detectou agente automático${SESSION_HINT} — render com sessão falhou: ${rendered.content}`
+            : `BLOCKED: site detectou agente automático (block page)${SESSION_HINT}`,
+        }
       }
     } else if (!isSpaShell(fetched.html, fetched.text)) {
       const sanitized = sanitizeContent(htmlToReadableText(fetched.html))
@@ -90,7 +107,7 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
         chunks: sanitized.chunks,
       }
     } else {
-      const rendered = await renderWithPlaywright(url)
+      const rendered = await renderWithPlaywright(url, session)
       if (rendered.status === "OK") {
         out = rendered
       } else {
