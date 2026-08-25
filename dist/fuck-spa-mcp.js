@@ -29356,6 +29356,13 @@ async function newContext(browser, session) {
     storageState: session?.storageState ? resolveStorageState(session.storageState) : void 0
   });
   await context.addInitScript(STEALTH_INIT_SCRIPT);
+  if (process.env.FUCK_SPA_BLOCK_ASSETS !== "0") {
+    await context.route("**/*", (route) => {
+      const type = route.request().resourceType();
+      if (type === "image" || type === "font" || type === "media") return route.abort();
+      return route.continue();
+    });
+  }
   if (session?.cookiesJson) {
     await context.addCookies(parseCookiesJson(session.cookiesJson));
   }
