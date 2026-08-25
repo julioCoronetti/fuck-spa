@@ -29283,6 +29283,40 @@ function sanitizeContent(text) {
 
 // src/core/render.ts
 var BLOCK_PATTERNS = /you'?ve been blocked|access denied|unusual traffic|verify you are human|captcha|not a robot|rate limit/i;
+var STEALTH_ARGS = [
+  "--disable-blink-features=AutomationControlled",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--disable-dev-shm-usage",
+  "--no-sandbox"
+];
+var STEALTH_INIT_SCRIPT = `
+Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });
+Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
+Object.defineProperty(screen, "availWidth", { get: () => 1920 });
+Object.defineProperty(screen, "availHeight", { get: () => 1040 });
+Object.defineProperty(screen, "colorDepth", { get: () => 32 });
+Object.defineProperty(window, "outerWidth", { get: () => window.innerWidth });
+Object.defineProperty(window, "outerHeight", { get: () => window.innerHeight + 80 });
+if (!window.chrome) {
+  window.chrome = {
+    runtime: {
+      OnInstalledReason: { CHROME_UPDATE: "chrome_update", INSTALL: "install", UPDATE: "update" },
+      OnRestartRequiredReason: { APP_UPDATE: "app_update", OS_UPDATE: "os_update", PERIODIC: "periodic" },
+      PlatformOs: { LINUX: "linux", MAC: "mac", WIN: "win" },
+    },
+    loadTimes: () => ({}),
+    csi: () => ({}),
+  };
+}
+const getParameter = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function (p) {
+  if (p === 37445) return "Intel Inc.";
+  if (p === 37446) return "Intel Iris OpenGL Engine";
+  return getParameter.call(this, p);
+};
+`;
 function isRenderBlocked(text) {
   return BLOCK_PATTERNS.test(text);
 }
@@ -29304,6 +29338,29 @@ async function chromiumAvailable() {
     return false;
   }
 }
+async function launchChromium(chromium) {
+  try {
+    return await chromium.launch({ headless: false, args: ["--headless=new", ...STEALTH_ARGS] });
+  } catch {
+    return await chromium.launch({ headless: true, args: STEALTH_ARGS });
+  }
+}
+async function newContext(browser, session) {
+  const context = await browser.newContext({
+    viewport: { width: 1920, height: 1080 },
+    screen: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    locale: "en-US",
+    timezoneId: "America/New_York",
+    userAgent: BROWSER_UA,
+    storageState: session?.storageState ? resolveStorageState(session.storageState) : void 0
+  });
+  await context.addInitScript(STEALTH_INIT_SCRIPT);
+  if (session?.cookiesJson) {
+    await context.addCookies(parseCookiesJson(session.cookiesJson));
+  }
+  return context;
+}
 async function renderWithPlaywright(url2, session) {
   try {
     const { chromium } = await import("playwright");
@@ -29316,14 +29373,11 @@ async function renderWithPlaywright(url2, session) {
         content: "CHROMIUM_MISSING: chromium n\xE3o instalado, rode npm install (postinstall baixa o chromium)"
       };
     }
-    const browser = await chromium.launch({ headless: true });
+    const browser = await launchChromium(chromium);
     try {
       let context;
       try {
-        context = session?.storageState ? await browser.newContext({ storageState: resolveStorageState(session.storageState) }) : await browser.newContext();
-        if (session?.cookiesJson) {
-          await context.addCookies(parseCookiesJson(session.cookiesJson));
-        }
+        context = await newContext(browser, session);
       } catch (e) {
         await browser.close();
         const msg = e instanceof Error ? e.message : String(e);

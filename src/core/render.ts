@@ -1,5 +1,6 @@
 import fs from "fs"
-import { RENDER_TIMEOUT, type ExtractionResult, type SessionOptions } from "./types.js"
+import type { Browser } from "playwright"
+import { BROWSER_UA, RENDER_TIMEOUT, type ExtractionResult, type SessionOptions } from "./types.js"
 import { sanitizeContent } from "./sanitize.js"
 
 export type StorageStateInput = {
@@ -17,6 +18,42 @@ export type StorageStateInput = {
 }
 
 const BLOCK_PATTERNS = /you'?ve been blocked|access denied|unusual traffic|verify you are human|captcha|not a robot|rate limit/i
+
+const STEALTH_ARGS = [
+  "--disable-blink-features=AutomationControlled",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--disable-dev-shm-usage",
+  "--no-sandbox",
+]
+
+const STEALTH_INIT_SCRIPT = `
+Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });
+Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
+Object.defineProperty(screen, "availWidth", { get: () => 1920 });
+Object.defineProperty(screen, "availHeight", { get: () => 1040 });
+Object.defineProperty(screen, "colorDepth", { get: () => 32 });
+Object.defineProperty(window, "outerWidth", { get: () => window.innerWidth });
+Object.defineProperty(window, "outerHeight", { get: () => window.innerHeight + 80 });
+if (!window.chrome) {
+  window.chrome = {
+    runtime: {
+      OnInstalledReason: { CHROME_UPDATE: "chrome_update", INSTALL: "install", UPDATE: "update" },
+      OnRestartRequiredReason: { APP_UPDATE: "app_update", OS_UPDATE: "os_update", PERIODIC: "periodic" },
+      PlatformOs: { LINUX: "linux", MAC: "mac", WIN: "win" },
+    },
+    loadTimes: () => ({}),
+    csi: () => ({}),
+  };
+}
+const getParameter = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function (p) {
+  if (p === 37445) return "Intel Inc.";
+  if (p === 37446) return "Intel Iris OpenGL Engine";
+  return getParameter.call(this, p);
+};
+`
 
 export function isRenderBlocked(text: string): boolean {
   return BLOCK_PATTERNS.test(text)
@@ -45,6 +82,34 @@ export async function chromiumAvailable(): Promise<boolean> {
   }
 }
 
+async function launchChromium(chromium: typeof import("playwright").chromium): Promise<Browser> {
+  try {
+    return await chromium.launch({ headless: false, args: ["--headless=new", ...STEALTH_ARGS] })
+  } catch {
+    return await chromium.launch({ headless: true, args: STEALTH_ARGS })
+  }
+}
+
+async function newContext(
+  browser: Awaited<ReturnType<typeof launchChromium>>,
+  session?: SessionOptions,
+) {
+  const context = await browser.newContext({
+    viewport: { width: 1920, height: 1080 },
+    screen: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    locale: "en-US",
+    timezoneId: "America/New_York",
+    userAgent: BROWSER_UA,
+    storageState: session?.storageState ? resolveStorageState(session.storageState) : undefined,
+  })
+  await context.addInitScript(STEALTH_INIT_SCRIPT)
+  if (session?.cookiesJson) {
+    await context.addCookies(parseCookiesJson(session.cookiesJson))
+  }
+  return context
+}
+
 export async function renderWithPlaywright(
   url: string,
   session?: SessionOptions,
@@ -60,16 +125,11 @@ export async function renderWithPlaywright(
         content: "CHROMIUM_MISSING: chromium não instalado, rode npm install (postinstall baixa o chromium)",
       }
     }
-    const browser = await chromium.launch({ headless: true })
+    const browser = await launchChromium(chromium)
     try {
       let context
       try {
-        context = session?.storageState
-          ? await browser.newContext({ storageState: resolveStorageState(session.storageState) })
-          : await browser.newContext()
-        if (session?.cookiesJson) {
-          await context.addCookies(parseCookiesJson(session.cookiesJson))
-        }
+        context = await newContext(browser, session)
       } catch (e: unknown) {
         await browser.close()
         const msg = e instanceof Error ? e.message : String(e)
