@@ -2,6 +2,12 @@ import fs from "fs"
 import { RENDER_TIMEOUT, type ExtractionResult } from "./types.js"
 import { sanitizeContent } from "./sanitize.js"
 
+const BLOCK_PATTERNS = /you'?ve been blocked|access denied|unusual traffic|verify you are human|captcha|not a robot|rate limit/i
+
+export function isRenderBlocked(text: string): boolean {
+  return BLOCK_PATTERNS.test(text)
+}
+
 export async function chromiumAvailable(): Promise<boolean> {
   try {
     const { chromium } = await import("playwright")
@@ -30,6 +36,15 @@ export async function renderWithPlaywright(url: string): Promise<ExtractionResul
       await page.waitForTimeout(1500)
       const text = await page.evaluate(() => document.body.innerText || "")
       const clean = text.replace(/\n{3,}/g, "\n\n").trim()
+      if (isRenderBlocked(clean)) {
+        return {
+          status: "BLOCKED",
+          spaDetected: true,
+          source: "render",
+          url,
+          content: "BLOCKED: site bloqueou o render (block page). Tente com sessão autenticada.",
+        }
+      }
       if (clean.length < 100) {
         return {
           status: "RENDER_ERROR",

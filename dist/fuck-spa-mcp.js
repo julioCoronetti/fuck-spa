@@ -29282,6 +29282,10 @@ function sanitizeContent(text) {
 }
 
 // src/core/render.ts
+var BLOCK_PATTERNS = /you'?ve been blocked|access denied|unusual traffic|verify you are human|captcha|not a robot|rate limit/i;
+function isRenderBlocked(text) {
+  return BLOCK_PATTERNS.test(text);
+}
 async function chromiumAvailable() {
   try {
     const { chromium } = await import("playwright");
@@ -29309,6 +29313,15 @@ async function renderWithPlaywright(url2) {
       await page.waitForTimeout(1500);
       const text = await page.evaluate(() => document.body.innerText || "");
       const clean = text.replace(/\n{3,}/g, "\n\n").trim();
+      if (isRenderBlocked(clean)) {
+        return {
+          status: "BLOCKED",
+          spaDetected: true,
+          source: "render",
+          url: url2,
+          content: "BLOCKED: site bloqueou o render (block page). Tente com sess\xE3o autenticada."
+        };
+      }
       if (clean.length < 100) {
         return {
           status: "RENDER_ERROR",
