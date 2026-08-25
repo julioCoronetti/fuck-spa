@@ -13,7 +13,7 @@ cd fuck-spa
 ```
 
 The `install.sh`:
-- Copies the bundles to `~/.config/opencode/tools/` (`fuck-spa.js` for opencode, `fuck-spa-mcp.js` for any harness)
+- Copies the bundles (`fuck-spa.js` for opencode into `tools/`, `fuck-spa-mcp.js` for any harness into `mcp/`)
 - Installs playwright, downloads chromium and tries to install system libraries (may ask for `sudo`)
 - Validates that chromium launches
 
@@ -38,17 +38,17 @@ Without the libraries, the tool returns a clear `CHROMIUM_MISSING` error with in
 
 **Claude Code**
 ```sh
-claude mcp add fuck-spa -- node ~/.config/opencode/tools/fuck-spa-mcp.js
+claude mcp add fuck-spa -- node ~/.config/opencode/mcp/fuck-spa-mcp.js
 ```
 
 **Cursor** — `.cursor/mcp.json`
 ```json
-{ "mcpServers": { "fuck-spa": { "command": "node", "args": ["~/.config/opencode/tools/fuck-spa-mcp.js"] } } }
+{ "mcpServers": { "fuck-spa": { "command": "node", "args": ["~/.config/opencode/mcp/fuck-spa-mcp.js"] } } }
 ```
 
 **opencode via MCP** — `opencode.json`
 ```json
-{ "mcp": { "fuck-spa": { "type": "local", "command": ["node", "~/.config/opencode/tools/fuck-spa-mcp.js"] } } }
+{ "mcp": { "fuck-spa": { "type": "local", "command": ["node", "~/.config/opencode/mcp/fuck-spa-mcp.js"] } } }
 ```
 
 ## How it works
