@@ -44,6 +44,15 @@ test("isBlocked detecta block pages e 429", () => {
   assert.equal(isBlocked(NORMAL, cleanText(NORMAL), 200), false)
 })
 
+test("render: block page renderizada nao vira conteudo", async () => {
+  const { isRenderBlocked } = await import("../src/core/render.js")
+  assert.equal(isRenderBlocked("You've been blocked by network security. If you think..."), true)
+  assert.equal(isRenderBlocked("Please verify you are human by completing the captcha"), true)
+  assert.equal(isRenderBlocked("Access Denied: request blocked by policy"), true)
+  assert.equal(isRenderBlocked("Conteudo normal sobre programacao e tecnologia"), false)
+  assert.equal(isRenderBlocked("artigo discutindo ad-blockers e politicas"), false)
+})
+
 test("redditUrl converte para old.reddit", () => {
   assert.equal(redditUrl("https://www.reddit.com/r/test/"), "https://old.reddit.com/r/test/")
   assert.equal(redditUrl("https://reddit.com/r/test"), "https://old.reddit.com/r/test")
