@@ -29837,7 +29837,7 @@ Pergunta: ${prompt}`;
 // src/mcp/server.ts
 var server = new McpServer({
   name: "fuck-spa",
-  version: "0.1.0"
+  version: "0.2.0"
 });
 server.registerTool(
   "fetch-spa",
