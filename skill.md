@@ -2,6 +2,18 @@
 
 Use quando `webfetch` falha ou retorna HTML vazio de SPA.
 
+## Ativacao consciente
+
+A tool fica DESATIVADA por padrao (nao ocupa contexto/tokens do modelo). Ative so quando for usar:
+
+```sh
+./fuck-spa.sh on      # ativa (reinicie o opencode)
+./fuck-spa.sh off     # desativa depois do uso
+./fuck-spa.sh status  # verifica
+```
+
+Depois do uso, desative novamente.
+
 ## Quando usar
 
 - Página retorna `<div id="root"></div>` ou `<div id="app"></div>` sem texto
