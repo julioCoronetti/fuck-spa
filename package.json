@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Leitor minimalista para SPAs - transforma qualquer link em contexto para agente IA",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@opencode-ai/plugin": "1.18.13",
     "playwright": "^1.44.0"
   },

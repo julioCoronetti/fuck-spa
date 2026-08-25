@@ -27,6 +27,27 @@ sudo npx playwright install-deps chromium
 
 Ou via tool `fuck-spa` com `url` e `prompt` opcional.
 
+## Uso em qualquer harness (MCP)
+
+O `install.sh` copia o servidor MCP para `~/.config/opencode/tools/fuck-spa-mcp.js`. Registre em qualquer harness que suporte MCP stdio:
+
+**Claude Code**
+```sh
+claude mcp add fuck-spa -- node ~/.config/opencode/tools/fuck-spa-mcp.js
+```
+
+**Cursor** — `.cursor/mcp.json`
+```json
+{ "mcpServers": { "fuck-spa": { "command": "node", "args": ["~/.config/opencode/tools/fuck-spa-mcp.js"] } } }
+```
+
+**opencode via MCP** — `opencode.json`
+```json
+{ "mcp": { "fuck-spa": { "type": "local", "command": ["node", "~/.config/opencode/tools/fuck-spa-mcp.js"] } } }
+```
+
+A tool expõe `fetch-spa` com argumentos `url`, `prompt` e `noCache`.
+
 ## Como funciona
 
 1. Tenta `fetch` simples
