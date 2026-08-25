@@ -1,8 +1,8 @@
 # fuck-spa
 
-Leitor minimalista para SPAs. Transforma qualquer link em contexto legível para agente de IA.
+Leitor para SPAs que transforma qualquer link em contexto legível para agente de IA. Funciona em qualquer harness (opencode, Claude Code, Cursor, etc.) via core puro + MCP stdio.
 
-Quando `webfetch` retorna shell vazio, usa renderização headless para extrair texto.
+Quando `webfetch` retorna shell vazio, usa renderização headless (chromium) para extrair texto.
 
 ## Instalação
 
@@ -12,24 +12,31 @@ cd fuck-spa
 ./install.sh
 ```
 
-O `install.sh` instala o playwright, baixa o chromium, tenta instalar as libs de sistema (pode pedir senha do `sudo`) e valida que o chromium abre.
+O `install.sh`:
+- Copia os bundles para `~/.config/opencode/tools/` (`fuck-spa.js` para o opencode, `fuck-spa-mcp.js` para qualquer harness)
+- Instala o playwright, baixa o chromium e tenta instalar as libs de sistema (pode pedir senha do `sudo`)
+- Valida que o chromium abre
 
 Se as libs de sistema não forem instaladas (ex.: ambiente sem sudo), rode manualmente:
 ```sh
 sudo npx playwright install-deps chromium
 ```
 
+Sem as libs, a tool retorna erro claro `CHROMIUM_MISSING` com a instrução.
+
 ## Uso no opencode
 
-```
-/fuck-spa https://exemplo.com/spa-page
-```
+A tool `fuck-spa` fica disponível automaticamente após o `install.sh`. Argumentos:
 
-Ou via tool `fuck-spa` com `url` e `prompt` opcional.
+| Argumento | Descrição |
+|---|---|
+| `url` | URL para extrair (obrigatório) |
+| `prompt` | Pergunta específica sobre a página — retorna só o trecho relevante (keyword matching) |
+| `noCache` | Ignorar o cache de 1h e refazer o fetch |
 
 ## Uso em qualquer harness (MCP)
 
-O `install.sh` copia o servidor MCP para `~/.config/opencode/tools/fuck-spa-mcp.js`. Registre em qualquer harness que suporte MCP stdio:
+Registre o servidor MCP (`fuck-spa-mcp.js`) em qualquer harness que suporte MCP stdio. A tool expõe `fetch-spa` com os mesmos argumentos `url`, `prompt` e `noCache`.
 
 **Claude Code**
 ```sh
@@ -46,16 +53,42 @@ claude mcp add fuck-spa -- node ~/.config/opencode/tools/fuck-spa-mcp.js
 { "mcp": { "fuck-spa": { "type": "local", "command": ["node", "~/.config/opencode/tools/fuck-spa-mcp.js"] } } }
 ```
 
-A tool expõe `fetch-spa` com argumentos `url`, `prompt` e `noCache`.
-
 ## Como funciona
 
-1. Tenta `fetch` simples
-2. Detecta SPA shell vazio (`#root` vazia, `__NEXT_DATA__`, body < 500 chars)
-3. Fallback para `playwright` com `networkidle` e extrai `innerText`
-4. Retorna markdown limpo para o agente
+1. `fetch` simples com User-Agent de browser
+2. Detecção de SPA shell (`#root` vazia, `__NEXT_DATA__`, body < 500 chars) e de bloqueio (block pages, rate limit)
+3. Tratamento específico do Reddit (old.reddit, endpoint `.json`, fallback para render)
+4. Fallback para renderização com chromium (`networkidle` + `innerText`)
+5. Sanitização para markdown leve (remove nav/header/footer/scripts, converte títulos/listas)
+6. Se o texto excede 8k chars, divide em chunks com overlap e retorna a 1ª parte + aviso
+7. Com `prompt`, filtra os chunks por keywords e retorna o trecho relevante (fallback para o texto completo)
+
+## Estrutura
+
+```
+src/
+  core/     → lógica pura independente de harness (http, detect, render, reddit, cache, sanitize, question, extract)
+  mcp/      → servidor MCP stdio
+  opencode/ → camada fina do opencode
+dist/       → bundles single-file (fuck-spa.opencode.js, fuck-spa-mcp.js)
+test/       → testes com node:test
+```
+
+## Desenvolvimento
+
+```sh
+# testes (compila com tsc e roda node --test)
+npx --yes -p typescript -p @types/node tsc src/core/*.ts test/*.ts --outDir .build-test --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --esModuleInterop
+node --test .build-test/test/
+rm -rf .build-test
+
+# regenerar bundles após mudanças em src/
+npx esbuild src/opencode/tool.ts --bundle --platform=node --format=esm --outfile=dist/fuck-spa.opencode.js --external:@opencode-ai/plugin --external:playwright
+npx esbuild src/mcp/server.ts --bundle --platform=node --format=esm --outfile=dist/fuck-spa-mcp.js --external:playwright
+```
 
 ## Requisitos
 
 - `bun` ou `npm`
-- Sem as libs de sistema do chromium, a tool retorna erro claro `CHROMIUM_MISSING` com a instrução
+- Node 18+ (para o servidor MCP)
+- Chromium (instalado pelo `install.sh`; libs de sistema podem exigir sudo)
