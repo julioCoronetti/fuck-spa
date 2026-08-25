@@ -1,5 +1,6 @@
 node_modules
 dist/*
 !dist/fuck-spa-mcp.js
+!dist/fuck-spa.opencode.js
 .env
 playwright/.cache

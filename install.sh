@@ -2,9 +2,10 @@
 set -euo pipefail
 DEST="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mkdir -p "$DEST/tools/core" "$DEST/skills/fuck-spa"
-cp "$HERE/src/opencode/tool.ts" "$DEST/tools/fuck-spa.ts"
-cp "$HERE/src/core/"*.ts "$DEST/tools/core/"
+mkdir -p "$DEST/tools" "$DEST/skills/fuck-spa"
+rm -f "$DEST/tools/fuck-spa.ts"
+rm -rf "$DEST/tools/core"
+cp "$HERE/dist/fuck-spa.opencode.js" "$DEST/tools/fuck-spa.js"
 cp "$HERE/dist/fuck-spa-mcp.js" "$DEST/tools/fuck-spa-mcp.js"
 cp "$HERE/skill.md" "$DEST/skills/fuck-spa/SKILL.md"
 cp "$HERE/package.json" "$DEST/tools/fuck-spa.json" 2>/dev/null || true
