@@ -7,6 +7,7 @@ import { extract } from "../src/core/extract.js"
 import { formatResult } from "../src/core/format.js"
 import { chunkText, htmlToReadableText, sanitizeContent } from "../src/core/sanitize.js"
 import { answerFromChunks, extractKeywords } from "../src/core/question.js"
+import { parseCookiesJson, resolveStorageState } from "../src/core/render.js"
 
 const SPA_SHELL =
   '<html><head><title>App</title></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>'
@@ -191,5 +192,26 @@ test("extract: modo pergunta responde trecho via cache", async () => {
     const r2 = await extract({ url, prompt: "qual engine o node usa?" })
     assert.equal(r2.source, "cache")
     assert.ok(r2.answer && r2.answer.includes("V8"))
+  })
+})
+
+test("resolveStorageState: aceita JSON inline e caminho de arquivo", () => {
+  const inline = resolveStorageState('{"cookies":[{"name":"a","value":"b","domain":"x.com","path":"/"}]}')
+  assert.deepEqual(inline, { cookies: [{ name: "a", value: "b", domain: "x.com", path: "/" }] })
+  assert.throws(() => resolveStorageState("/tmp/nao-existe-state.json"))
+})
+
+test("parseCookiesJson: valida array de cookies", () => {
+  const cookies = parseCookiesJson('[{"name":"session","value":"abc","domain":"x.com","path":"/"}]')
+  assert.equal(cookies.length, 1)
+  assert.equal(cookies[0].name, "session")
+  assert.throws(() => parseCookiesJson('{"nao":"array"}'))
+})
+
+test("extract: login required sem sessao orienta como fornecer", async () => {
+  await withFetch(async () => new Response("unauthorized", { status: 401 }), async () => {
+    const r = await extract({ url: "https://exemplo.com/privada2", noCache: true })
+    assert.equal(r.status, "LOGIN_REQUIRED")
+    assert.match(r.content, /storageState|sessão/)
   })
 })
