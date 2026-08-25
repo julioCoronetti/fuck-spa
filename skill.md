@@ -14,6 +14,12 @@ Use quando `webfetch` falha ou retorna HTML vazio de SPA.
 2. Se sucesso, usar texto retornado como contexto
 3. Se `login required`, avisar usuário que precisa de sessão autenticada
 
+## Setup
+
+- `install.sh` baixa playwright + chromium e tenta instalar as libs de sistema
+- Se o sudo não estiver disponível, rode manualmente `sudo npx playwright install-deps chromium`
+- Sem as libs (ex.: libnspr4/libnss3), a tool retorna erro claro `CHROMIUM_MISSING`
+
 ## Limites
 
 - Não tenta burlar login/paywall sem sessão fornecida

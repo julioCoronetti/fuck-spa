@@ -12,6 +12,13 @@ cd fuck-spa
 ./install.sh
 ```
 
+O `install.sh` instala o playwright, baixa o chromium, tenta instalar as libs de sistema (pode pedir senha do `sudo`) e valida que o chromium abre.
+
+Se as libs de sistema não forem instaladas (ex.: ambiente sem sudo), rode manualmente:
+```sh
+sudo npx playwright install-deps chromium
+```
+
 ## Uso no opencode
 
 ```
@@ -30,4 +37,4 @@ Ou via tool `fuck-spa` com `url` e `prompt` opcional.
 ## Requisitos
 
 - `bun` ou `npm`
-- `playwright` instala `chromium` automaticamente no `install.sh`
+- Sem as libs de sistema do chromium, a tool retorna erro claro `CHROMIUM_MISSING` com a instrução

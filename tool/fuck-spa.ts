@@ -8,6 +8,8 @@ const FETCH_TIMEOUT = 15000
 const RENDER_TIMEOUT = 20000
 const CACHE_TTL = 60 * 60 * 1000
 const CACHE_DIR = path.join(os.tmpdir(), "fuck-spa")
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
 function cacheKey(url: string): string {
   return crypto.createHash("sha256").update(url).digest("hex").slice(0, 16)
@@ -43,6 +45,15 @@ function isSpaShell(html: string, text: string): boolean {
   return false
 }
 
+function detectBlock(html: string, text: string, status: number): string | null {
+  if (status === 429) return "BLOCKED: HTTP 429 (rate limit)"
+  const lower = `${html} ${text}`.toLowerCase()
+  if (/access denied|unusual traffic|verify you are human|captcha|not a robot|rate limit|blocked/.test(lower)) {
+    return "BLOCKED: site detectou agente automático (block page). Tente via chromium ou forneça sessão autenticada."
+  }
+  return null
+}
+
 function cleanText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -58,7 +69,7 @@ async function fetchSimple(url: string): Promise<{ html: string; text: string; s
   try {
     const resp = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "fuck-spa/0.1" },
+      headers: { "User-Agent": BROWSER_UA },
     })
     if (resp.status === 401 || resp.status === 403) return `LOGIN_REQUIRED: HTTP ${resp.status}`
     if (!resp.ok) return `FETCH_ERROR: HTTP ${resp.status}`
@@ -73,9 +84,75 @@ async function fetchSimple(url: string): Promise<{ html: string; text: string; s
   }
 }
 
+function redditUrl(url: string): string | null {
+  const m = url.match(/^https?:\/\/(?:www\.)?reddit\.com(\/.*)?$/)
+  if (!m) return null
+  return `https://old.reddit.com${m[1] ?? ""}`
+}
+
+async function fetchRedditJson(url: string): Promise<string> {
+  const m = url.match(/^https?:\/\/(?:www\.|old\.)?reddit\.com(\/[^?#]*)/)
+  if (!m) return "REDDIT_JSON_ERROR: url inválida"
+  const pathOnly = m[1].replace(/\/+$/, "")
+  if (!pathOnly) return "REDDIT_JSON_ERROR: sem caminho"
+  try {
+    const resp = await fetch(`https://www.reddit.com${pathOnly}.json`, {
+      headers: { "User-Agent": BROWSER_UA },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+    })
+    if (resp.status === 429) return "REDDIT_JSON_ERROR: HTTP 429 (rate limit)"
+    if (!resp.ok) return `REDDIT_JSON_ERROR: HTTP ${resp.status}`
+    const data = (await resp.json()) as Array<{ data: { children: Array<{ data: Record<string, unknown> }> } }>
+    const post = data[0]?.data?.children?.[0]?.data
+    const comments = data[1]?.data?.children ?? []
+    const parts: string[] = []
+    if (post) {
+      parts.push(`# ${post.title}`, `u/${post.author} · r/${post.subreddit}`)
+      if (typeof post.selftext === "string" && post.selftext) parts.push(post.selftext)
+    }
+    for (const child of comments) {
+      const body = (child?.data as Record<string, unknown> | undefined)?.body
+      if (typeof body === "string") parts.push(body)
+    }
+    if (parts.length === 0) return "REDDIT_JSON_ERROR: sem conteúdo no JSON"
+    return parts.join("\n\n").slice(0, 15000)
+  } catch (e: unknown) {
+    return `REDDIT_JSON_ERROR: ${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+async function redditContent(url: string): Promise<string> {
+  const old = await fetchSimple(redditUrl(url) as string)
+  if (typeof old === "object") {
+    const block = detectBlock(old.html, old.text, old.status)
+    if (!block && !isSpaShell(old.html, old.text) && old.text.length > 200) {
+      return old.text.slice(0, 15000)
+    }
+  }
+  const json = await fetchRedditJson(url)
+  if (!json.startsWith("REDDIT_JSON_ERROR")) return json
+  const rendered = await renderWithPlaywright(url)
+  if (!rendered.startsWith("RENDER_") && !rendered.startsWith("PLAYWRIGHT") && !rendered.startsWith("CHROMIUM")) {
+    return rendered
+  }
+  return `REDDIT_ERROR: old.reddit e JSON bloqueados (${json})\nFallback: ${rendered}`
+}
+
+async function chromiumAvailable(): Promise<boolean> {
+  try {
+    const { chromium } = await import("playwright")
+    return fs.existsSync(chromium.executablePath())
+  } catch {
+    return false
+  }
+}
+
 async function renderWithPlaywright(url: string): Promise<string> {
   try {
     const { chromium } = await import("playwright")
+    if (!(await chromiumAvailable())) {
+      return "CHROMIUM_MISSING: chromium não instalado, rode npm install (postinstall baixa o chromium)"
+    }
     const browser = await chromium.launch({ headless: true })
     try {
       const page = await browser.newPage()
@@ -90,6 +167,9 @@ async function renderWithPlaywright(url: string): Promise<string> {
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
+    if (/error while loading shared libraries|libnspr4|libnss3/.test(msg)) {
+      return "CHROMIUM_MISSING: chromium não roda por falta de libs de sistema (libnspr4/libnss3). Rode 'npx playwright install-deps chromium'"
+    }
     if (msg.includes("Cannot find package") || msg.includes("playwright")) {
       return "PLAYWRIGHT_MISSING: run install.sh to install chromium"
     }
@@ -115,26 +195,46 @@ export default tool({
       }
     }
     let result: string
-    const fetched = await fetchSimple(url)
-    if (typeof fetched === "string") {
-      if (fetched.startsWith("LOGIN_REQUIRED")) result = `${fetched} — página requer login, forneça sessão autenticada`
-      else if (fetched.startsWith("FETCH_ERROR")) {
-        const rendered = await renderWithPlaywright(url)
-        if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT")) result = `${fetched}\nFallback: ${rendered}`
-        else result = rendered
-      } else result = fetched
-    } else if (!isSpaShell(fetched.html, fetched.text)) {
-      const out = fetched.text.slice(0, 15000)
-      result = args.prompt ? `Conteúdo de ${url}:\n${out}\n\nPergunta: ${args.prompt}` : out
+    const reddit = redditUrl(url)
+    if (reddit) {
+      result = await redditContent(url)
     } else {
-      const rendered = await renderWithPlaywright(url)
-      if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT") || rendered.startsWith("LOGIN")) {
-        result = `SPA detectada mas render falhou: ${rendered}\nFetch text parcial: ${fetched.text.slice(0, 2000)}`
+      const fetched = await fetchSimple(url)
+      if (typeof fetched === "string") {
+        if (fetched.startsWith("LOGIN_REQUIRED")) result = `${fetched} — página requer login, forneça sessão autenticada`
+        else if (fetched.startsWith("FETCH_ERROR")) {
+          const rendered = await renderWithPlaywright(url)
+          if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT") || rendered.startsWith("CHROMIUM")) {
+            result = `${fetched}\nFallback: ${rendered}`
+          } else result = rendered
+        } else result = fetched
       } else {
-        result = args.prompt ? `Conteúdo renderizado de ${url}:\n${rendered}\n\nPergunta: ${args.prompt}` : rendered
+        const block = detectBlock(fetched.html, fetched.text, fetched.status)
+        if (block) result = block
+        else if (!isSpaShell(fetched.html, fetched.text)) {
+          const out = fetched.text.slice(0, 15000)
+          result = args.prompt ? `Conteúdo de ${url}:\n${out}\n\nPergunta: ${args.prompt}` : out
+        } else {
+          const rendered = await renderWithPlaywright(url)
+          if (rendered.startsWith("RENDER_") || rendered.startsWith("PLAYWRIGHT") || rendered.startsWith("CHROMIUM") || rendered.startsWith("LOGIN")) {
+            result = `SPA detectada mas render falhou: ${rendered}\nFetch text parcial: ${fetched.text.slice(0, 2000)}`
+          } else {
+            result = args.prompt ? `Conteúdo renderizado de ${url}:\n${rendered}\n\nPergunta: ${args.prompt}` : rendered
+          }
+        }
       }
     }
-    if (result.length > 100 && !result.startsWith("FUCK_SPA_ERROR") && !result.startsWith("FETCH_ERROR") && !result.startsWith("RENDER_") && !result.startsWith("PLAYWRIGHT") && !result.includes("LOGIN_REQUIRED")) {
+    if (
+      result.length > 100 &&
+      !result.startsWith("FUCK_SPA_ERROR") &&
+      !result.startsWith("FETCH_ERROR") &&
+      !result.startsWith("RENDER_") &&
+      !result.startsWith("PLAYWRIGHT") &&
+      !result.startsWith("CHROMIUM") &&
+      !result.startsWith("BLOCKED") &&
+      !result.startsWith("REDDIT_ERROR") &&
+      !result.includes("LOGIN_REQUIRED")
+    ) {
       writeCache(url, result)
     }
     return result
