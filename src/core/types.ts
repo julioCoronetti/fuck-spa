@@ -39,5 +39,6 @@ export type CacheEntry = {
   source: ExtractionSource
   spaDetected: boolean
   content: string
+  chunks?: string[]
   savedAt: number
 }

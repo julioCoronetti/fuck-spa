@@ -5,6 +5,7 @@ import { isBlocked, isSpaShell } from "../src/core/detect.js"
 import { redditUrl } from "../src/core/reddit.js"
 import { extract } from "../src/core/extract.js"
 import { formatResult } from "../src/core/format.js"
+import { chunkText, htmlToReadableText, sanitizeContent } from "../src/core/sanitize.js"
 
 const SPA_SHELL =
   '<html><head><title>App</title></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>'
@@ -107,4 +108,44 @@ test("formatResult: OK com prompt", () => {
     content: "texto",
   }
   assert.equal(formatResult(r, "pergunta"), "Conteúdo de https://a:\ntexto\n\nPergunta: pergunta")
+})
+
+test("htmlToReadableText: markdown leve e remocao de nav", () => {
+  const html =
+    "<html><nav>Menu topo</nav><h1>Titulo</h1><p>Paragrafo um.</p><ul><li>Item A</li><li>Item B</li></ul><footer>Rodape</footer></html>"
+  const out = htmlToReadableText(html)
+  assert.match(out, /^# Titulo/)
+  assert.match(out, /Paragrafo um/)
+  assert.match(out, /- Item A/)
+  assert.match(out, /- Item B/)
+  assert.ok(!out.includes("Menu topo"))
+  assert.ok(!out.includes("Rodape"))
+})
+
+test("htmlToReadableText: decodifica entidades", () => {
+  assert.equal(htmlToReadableText("<p>A &amp; B &lt; C</p>"), "A & B < C")
+})
+
+test("chunkText: divide com overlap e nao perde conteudo", () => {
+  const text = "a".repeat(5000) + "\n" + "b".repeat(5000)
+  const chunks = chunkText(text, 4000, 200)
+  assert.ok(chunks.length >= 2)
+  for (const c of chunks) assert.ok(c.length <= 4000)
+  const joined = chunks.join("")
+  assert.ok(joined.includes("a".repeat(100)))
+  assert.ok(joined.includes("b".repeat(100)))
+})
+
+test("sanitizeContent: texto curto nao chunkia", () => {
+  const out = sanitizeContent("texto curto")
+  assert.equal(out.content, "texto curto")
+  assert.equal(out.chunks, undefined)
+})
+
+test("sanitizeContent: texto longo chunkia com aviso", () => {
+  const long = "linha um\n".repeat(3000)
+  const out = sanitizeContent(long)
+  assert.ok(out.chunks && out.chunks.length > 1)
+  assert.match(out.content, /conteúdo longo dividido em \d+ partes/)
+  assert.ok(out.content.length < long.length)
 })

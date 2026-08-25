@@ -34,6 +34,7 @@ export function writeCache(r: ExtractionResult): void {
       source: r.source,
       spaDetected: r.spaDetected,
       content: r.content,
+      chunks: r.chunks,
       savedAt: Date.now(),
     }
     fs.writeFileSync(cacheFile(r.url), JSON.stringify(entry), "utf-8")

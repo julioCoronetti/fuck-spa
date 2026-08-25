@@ -1,5 +1,6 @@
 import fs from "fs"
-import { MAX_CONTENT, RENDER_TIMEOUT, type ExtractionResult } from "./types.js"
+import { RENDER_TIMEOUT, type ExtractionResult } from "./types.js"
+import { sanitizeContent } from "./sanitize.js"
 
 export async function chromiumAvailable(): Promise<boolean> {
   try {
@@ -38,7 +39,15 @@ export async function renderWithPlaywright(url: string): Promise<ExtractionResul
           content: "RENDER_EMPTY: page rendered but no text extracted",
         }
       }
-      return { status: "OK", spaDetected: true, source: "render", url, content: clean.slice(0, MAX_CONTENT) }
+      const sanitized = sanitizeContent(clean)
+      return {
+        status: "OK",
+        spaDetected: true,
+        source: "render",
+        url,
+        content: sanitized.content,
+        chunks: sanitized.chunks,
+      }
     } finally {
       await browser.close()
     }

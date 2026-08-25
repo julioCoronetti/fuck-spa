@@ -1,7 +1,8 @@
-import { BROWSER_UA, FETCH_TIMEOUT, MAX_CONTENT, type ExtractionResult } from "./types.js"
+import { BROWSER_UA, FETCH_TIMEOUT, type ExtractionResult } from "./types.js"
 import { fetchSimple } from "./http.js"
 import { isBlocked, isSpaShell } from "./detect.js"
 import { renderWithPlaywright } from "./render.js"
+import { htmlToReadableText, sanitizeContent } from "./sanitize.js"
 
 export function redditUrl(url: string): string | null {
   const m = url.match(/^https?:\/\/(?:www\.)?reddit\.com(\/.*)?$/)
@@ -34,7 +35,7 @@ export async function fetchRedditJson(url: string): Promise<string> {
       if (typeof body === "string") parts.push(body)
     }
     if (parts.length === 0) return "REDDIT_JSON_ERROR: sem conteúdo no JSON"
-    return parts.join("\n\n").slice(0, MAX_CONTENT)
+    return parts.join("\n\n")
   } catch (e: unknown) {
     return `REDDIT_JSON_ERROR: ${e instanceof Error ? e.message : String(e)}`
   }
@@ -45,12 +46,28 @@ export async function redditContent(url: string): Promise<ExtractionResult> {
   const old = await fetchSimple(oldUrl)
   if (typeof old === "object") {
     if (!isBlocked(old.html, old.text, old.status) && !isSpaShell(old.html, old.text) && old.text.length > 200) {
-      return { status: "OK", spaDetected: false, source: "reddit_old", url, content: old.text.slice(0, MAX_CONTENT) }
+      const sanitized = sanitizeContent(htmlToReadableText(old.html))
+      return {
+        status: "OK",
+        spaDetected: false,
+        source: "reddit_old",
+        url,
+        content: sanitized.content,
+        chunks: sanitized.chunks,
+      }
     }
   }
   const json = await fetchRedditJson(url)
   if (!json.startsWith("REDDIT_JSON_ERROR")) {
-    return { status: "OK", spaDetected: false, source: "reddit_json", url, content: json }
+    const sanitized = sanitizeContent(json)
+    return {
+      status: "OK",
+      spaDetected: false,
+      source: "reddit_json",
+      url,
+      content: sanitized.content,
+      chunks: sanitized.chunks,
+    }
   }
   const rendered = await renderWithPlaywright(url)
   if (rendered.status === "OK") return rendered

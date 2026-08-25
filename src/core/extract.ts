@@ -1,9 +1,10 @@
-import { MAX_CONTENT, type ExtractOptions, type ExtractionResult } from "./types.js"
+import { type ExtractOptions, type ExtractionResult } from "./types.js"
 import { fetchSimple } from "./http.js"
 import { isBlocked, isSpaShell } from "./detect.js"
 import { renderWithPlaywright } from "./render.js"
 import { redditContent, redditUrl } from "./reddit.js"
 import { readCache, writeCache } from "./cache.js"
+import { htmlToReadableText, sanitizeContent } from "./sanitize.js"
 
 export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
   const url = (opts.url ?? "").trim()
@@ -62,7 +63,15 @@ export async function extract(opts: ExtractOptions): Promise<ExtractionResult> {
           "BLOCKED: site detectou agente automático (block page). Tente via chromium ou forneça sessão autenticada.",
       }
     } else if (!isSpaShell(fetched.html, fetched.text)) {
-      out = { status: "OK", spaDetected: false, source: "fetch", url, content: fetched.text.slice(0, MAX_CONTENT) }
+      const sanitized = sanitizeContent(htmlToReadableText(fetched.html))
+      out = {
+        status: "OK",
+        spaDetected: false,
+        source: "fetch",
+        url,
+        content: sanitized.content,
+        chunks: sanitized.chunks,
+      }
     } else {
       const rendered = await renderWithPlaywright(url)
       if (rendered.status === "OK") {
