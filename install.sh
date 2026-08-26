@@ -1,15 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+FUCK_SPA_VERSION="${FUCK_SPA_VERSION:-main}"
 DEST="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RAW_BASE="https://raw.githubusercontent.com/julioCoronetti/fuck-spa/${FUCK_SPA_VERSION}"
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || HERE=""
+
+if [ -n "$HERE" ] && [ -f "$HERE/dist/fuck-spa.opencode.js" ]; then
+  SRC="$HERE"
+else
+  SRC="$(mktemp -d)"
+  mkdir -p "$SRC/dist"
+  curl -fsSL "$RAW_BASE/dist/fuck-spa.opencode.js" -o "$SRC/dist/fuck-spa.opencode.js"
+  curl -fsSL "$RAW_BASE/dist/fuck-spa-mcp.js" -o "$SRC/dist/fuck-spa-mcp.js"
+  curl -fsSL "$RAW_BASE/skill.md" -o "$SRC/skill.md"
+  curl -fsSL "$RAW_BASE/package.json" -o "$SRC/package.json"
+fi
+
 mkdir -p "$DEST/tools" "$DEST/mcp" "$DEST/skills/fuck-spa"
 rm -f "$DEST/tools/fuck-spa.ts"
 rm -rf "$DEST/tools/core"
-cp "$HERE/dist/fuck-spa.opencode.js" "$DEST/tools/fuck-spa.js"
-cp "$HERE/dist/fuck-spa-mcp.js" "$DEST/mcp/fuck-spa-mcp.js"
-cp "$HERE/skill.md" "$DEST/skills/fuck-spa/SKILL.md"
-cp "$HERE/package.json" "$DEST/tools/fuck-spa.json" 2>/dev/null || true
-echo "fuck-spa instalado em $DEST"
+cp "$SRC/dist/fuck-spa.opencode.js" "$DEST/tools/fuck-spa.js"
+cp "$SRC/dist/fuck-spa-mcp.js" "$DEST/mcp/fuck-spa-mcp.js"
+cp "$SRC/skill.md" "$DEST/skills/fuck-spa/SKILL.md"
+cp "$SRC/package.json" "$DEST/tools/fuck-spa.json" 2>/dev/null || true
+echo "fuck-spa ${FUCK_SPA_VERSION} instalado em $DEST"
 echo "Para aprovar cada uso (sem uso indiscriminado), adicione no opencode.json:"
 echo '  "permission": { "tools": { "fuck-spa": "ask" } }'
 

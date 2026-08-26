@@ -6,13 +6,27 @@ When `webfetch` returns an empty shell, it falls back to headless rendering (chr
 
 ## Install
 
+One command, no clone:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/julioCoronetti/fuck-spa/main/install.sh | bash
+```
+
+Pin a version with `FUCK_SPA_VERSION` (default `main`, e.g. `v0.3.0`) and install elsewhere with `OPENCODE_CONFIG_DIR` (default `~/.config/opencode`):
+
+```sh
+FUCK_SPA_VERSION=v0.3.0 curl -fsSL https://raw.githubusercontent.com/julioCoronetti/fuck-spa/main/install.sh | bash
+```
+
+Clone and run locally is also supported:
+
 ```sh
 git clone https://github.com/julioCoronetti/fuck-spa.git
 cd fuck-spa
 ./install.sh
 ```
 
-The `install.sh`:
+The `install.sh` detects the mode by the presence of `dist/` next to the script: a cloned repo copies locally, a piped download fetches the artifacts from raw.githubusercontent:
 - Copies the bundles (`fuck-spa.js` for opencode into `tools/`, `fuck-spa-mcp.js` for any harness into `mcp/`)
 - Installs playwright, downloads chromium and tries to install system libraries (may ask for `sudo`)
 - Validates that chromium launches
@@ -82,13 +96,17 @@ test/       → node:test suite
 
 ```sh
 # tests (compile with tsc, run with node --test)
-npx --yes -p typescript -p @types/node tsc src/core/*.ts test/*.ts --outDir .build-test --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --esModuleInterop
+npm install --no-save --ignore-scripts --silent typescript @types/node
+npx tsc src/core/*.ts test/*.ts --outDir .build-test --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --esModuleInterop --types node
 node --test .build-test/test/
 rm -rf .build-test
 
 # rebuild bundles after src/ changes
 npx esbuild src/opencode/tool.ts --bundle --platform=node --format=esm --outfile=dist/fuck-spa.opencode.js --external:@opencode-ai/plugin --external:playwright
 npx esbuild src/mcp/server.ts --bundle --platform=node --format=esm --outfile=dist/fuck-spa-mcp.js --external:playwright
+
+# release: rebuilds, guards against stale dist, bumps version, tags and pushes
+./release.sh [patch|minor|major]
 ```
 
 ## Requirements
